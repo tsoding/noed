@@ -15,9 +15,8 @@ typedef struct {
     size_t end;
 } Line;
 
-O(chars)
-
 typedef struct {
+    // TODO: replace data with rope
     char data[EDITOR_CAPACITY];
     size_t data_count;
     Line lines[EDITOR_CAPACITY + 10];
@@ -66,10 +65,12 @@ size_t editor_current_line(const Editor *e)
     return 0;
 }
 
-void editor_rerender(const Editor *e)
+void editor_rerender(const Editor *e, bool insert)
 {
     printf("\033[2J\033[H");
     fwrite(e->data, 1, e->data_count, stdout);
+    printf("\n");
+    if (insert) printf("[INSERT]");
     size_t line = editor_current_line(e);
     printf("\033[%zu;%zuH", line + 1, e->cursor - e->lines[line].begin + 1);
 }
@@ -78,6 +79,7 @@ static Editor editor = {0};
 
 int editor_start_interactive(Editor *e, const char *file_path)
 {
+    // TODO: implement limited view and scrolling
     if (!isatty(0)) {
         fprintf(stderr, "ERROR: Please run the editor in the terminal!\n");
         return 1;
@@ -99,11 +101,12 @@ int editor_start_interactive(Editor *e, const char *file_path)
     bool quit = false;
     bool insert = false;
     while (!quit && !feof(stdin)) {
-        editor_rerender(e);
+        editor_rerender(e, insert);
 
         if (insert) {
             int x = fgetc(stdin);
             if (x == 27) {
+                // TODO: proper saving
                 insert = false;
                 FILE *f = fopen(file_path, "wb");
                 assert(f != NULL && "TODO: properly handle inability to autosave files");
