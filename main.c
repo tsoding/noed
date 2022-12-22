@@ -6,7 +6,7 @@
 #include <stdbool.h>
 
 #include <termios.h>
-
+#include <sys/ioctl.h>
 #include <unistd.h>
 
 #define return_defer(value) do { result = (value); goto defer; } while(0)
@@ -27,7 +27,7 @@ typedef struct {
     char *items;
     size_t count;
     size_t capacity;
-} Data;
+} Data; // ur mom
 
 #define ITEMS_INIT_CAPACITY (10*1024)
 
@@ -52,6 +52,7 @@ typedef struct {
     Data data;
     Lines lines;
     size_t cursor;
+    size_t view_row;
 } Editor;
 
 // TODO: line recomputation only based on what was changed
@@ -96,15 +97,40 @@ size_t editor_current_line(const Editor *e)
     return 0;
 }
 
-void editor_rerender(const Editor *e, bool insert)
+void editor_rerender(Editor *e, bool insert)
 {
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+    size_t cursor_row = editor_current_line(e);
+    size_t cursor_col = e->cursor - e->lines.items[cursor_row].begin;
+    if (cursor_row < e->view_row) {
+        e->view_row = cursor_row;
+    }
+    if (cursor_row >= e->view_row + w.ws_row) {
+        e->view_row = cursor_row - w.ws_row + 1;
+    }
+
     printf("\033[2J\033[H");
-    fwrite(e->data.items, sizeof(*e->data.items), e->data.count, stdout);
-    printf("\n");
+    for (size_t i = 0; i < w.ws_row; ++i) {
+        printf("\033[%zu;%dH", i + 1, 1);
+        size_t row = e->view_row + i;
+        if (row < e->lines.count) {
+            const char *line_start = e->data.items + e->lines.items[row].begin;
+            size_t line_size = e->lines.items[row].end - e->lines.items[row].begin;
+            // TODO: implement horizontal scrolling
+            if (line_size > w.ws_col) line_size = w.ws_col;
+            fwrite(line_start, sizeof(*e->data.items), line_size, stdout);
+        } else {
+            fputs("~", stdout);
+        }
+    }
+
+    if (cursor_col > w.ws_col) cursor_col = w.ws_col;
+    printf("\033[%zu;%zuH", (cursor_row - e->view_row) + 1, cursor_col + 1);
+
     // TODO: print the mode indicator on the bottom
-    if (insert) printf("[INSERT]");
-    size_t line = editor_current_line(e);
-    printf("\033[%zu;%zuH", line + 1, e->cursor - e->lines.items[line].begin + 1);
+    UNUSED(insert);
 }
 
 static Editor editor = {0};
@@ -141,14 +167,13 @@ int editor_start_interactive(Editor *e, const char *file_path)
     int result = 0;
     bool terminal_prepared = false;
 
-    // TODO: implement limited view and scrolling
-    if (!isatty(0)) {
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
         fprintf(stderr, "ERROR: Please run the editor in the terminal!\n");
         return_defer(1);
     }
 
     struct termios term;
-    if (tcgetattr(0, &term) < 0) {
+    if (tcgetattr(STDIN_FILENO, &term) < 0) {
         fprintf(stderr, "ERROR: could not get the state of the terminal: %s\n", strerror(errno));
         return_defer(1);
     }
@@ -238,7 +263,7 @@ defer:
     if (terminal_prepared) {
         printf("\033[2J");
         term.c_lflag |= ECHO;
-        tcsetattr(0, 0, &term);
+        tcsetattr(STDIN_FILENO, 0, &term);
     }
     return result;
 }
@@ -257,6 +282,8 @@ int get_file_size(FILE *f, size_t *out)
 
 int main(int argc, char **argv)
 {
+    //////////////////////////////
+
     int result = 0;
     FILE *f = NULL;
 
