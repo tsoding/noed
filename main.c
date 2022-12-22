@@ -8,6 +8,9 @@
 
 #include <unistd.h>
 
+#define return_defer(value) do { result = (value); goto defer; } while(0)
+#define UNUSED(x) (void)(x)
+
 #define EDITOR_CAPACITY (10*1024)
 
 typedef struct {
@@ -17,6 +20,7 @@ typedef struct {
 
 typedef struct {
     // TODO: replace data with rope
+    // TODO: use dynamic memory for data and lines
     char data[EDITOR_CAPACITY];
     size_t data_count;
     Line lines[EDITOR_CAPACITY + 10];
@@ -24,6 +28,7 @@ typedef struct {
     size_t cursor;
 } Editor;
 
+// TODO: line recomputation only based on what was changed
 void editor_recompute_lines(Editor *e)
 {
     e->lines_count = 0;
@@ -70,6 +75,7 @@ void editor_rerender(const Editor *e, bool insert)
     printf("\033[2J\033[H");
     fwrite(e->data, 1, e->data_count, stdout);
     printf("\n");
+    // TODO: print the mode indicator on the bottom
     if (insert) printf("[INSERT]");
     size_t line = editor_current_line(e);
     printf("\033[%zu;%zuH", line + 1, e->cursor - e->lines[line].begin + 1);
@@ -77,49 +83,81 @@ void editor_rerender(const Editor *e, bool insert)
 
 static Editor editor = {0};
 
+bool editor_save_to_file(Editor *e, const char *file_path)
+{
+    bool result = true;
+    FILE *f = fopen(file_path, "wb");
+    if (f == NULL) {
+        // TODO: we need to log something here,
+        // but we can't easily do that if we are already in the special terminal mode with
+        // no ECHO and no ICANON (it will just look weird).
+        //
+        // Maybe we could start bubbling up errors through return values like in Go? But that may
+        // require dynamic memory management.
+        //
+        // We can just create a dedicated arena for the bubbling errors. I had this idea for quite some
+        // time already, maybe we can test it in here.
+        printf("ERROR: could not open file %s for writing: %s\n", file_path, strerror(errno));
+        return_defer(false);
+    }
+    fwrite(e->data, 1, e->data_count, f);
+    if (ferror(f)) {
+        printf("ERROR: could not write into file %s: %s\n", file_path, strerror(errno));
+        return_defer(false);
+    }
+defer:
+    if (f) UNUSED(fclose(f));
+    return result;
+}
+
 int editor_start_interactive(Editor *e, const char *file_path)
 {
+    int result = 0;
+    bool terminal_prepared = false;
+
     // TODO: implement limited view and scrolling
     if (!isatty(0)) {
         fprintf(stderr, "ERROR: Please run the editor in the terminal!\n");
-        return 1;
+        return_defer(1);
     }
 
     struct termios term;
     if (tcgetattr(0, &term) < 0) {
-        fprintf(stderr, "ERROR: could not save the state of the terminal: %s\n", strerror(errno));
-        return 1;
+        fprintf(stderr, "ERROR: could not get the state of the terminal: %s\n", strerror(errno));
+        return_defer(1);
     }
 
     term.c_lflag &= ~ECHO;
     term.c_lflag &= ~ICANON;
     if (tcsetattr(0, 0, &term)) {
         fprintf(stderr, "ERROR: could not update the state of the terminal: %s\n", strerror(errno));
-        return 1;
+        return_defer(1);
     }
+
+    terminal_prepared = true;
 
     bool quit = false;
     bool insert = false;
     while (!quit && !feof(stdin)) {
+        // TODO: there is a flickering when run without tmux
         editor_rerender(e, insert);
 
         if (insert) {
             int x = fgetc(stdin);
             if (x == 27) {
-                // TODO: proper saving
                 insert = false;
-                FILE *f = fopen(file_path, "wb");
-                assert(f != NULL && "TODO: properly handle inability to autosave files");
-                fwrite(e->data, 1, e->data_count, f);
-                assert(!ferror(f) && "TODO: properly handle inability to autosave files");
-                fclose(f);
+                // TODO: proper saving.
+                // Probably by pressing something int the command mode.
+                editor_save_to_file(e, file_path);
             } else {
+                // TODO: allow inserting only printable ASCII
                 editor_insert_char(&editor, x);
             }
         } else {
             int x = fgetc(stdin);
             switch (x) {
             case 'q': {
+                // TODO: when the editor exists the shell prompt is shifted
                 quit = true;
             }
             break;
@@ -129,6 +167,10 @@ int editor_start_interactive(Editor *e, const char *file_path)
             }
             break;
 
+            // TODO: preserve the column when moving up and down
+            // Right now if the next line is shorter the current column value is clamped and lost.
+            // Maybe cursor should be a pair (row, column) instead?
+            // TODO: backspace delete
             case 's': {
                 size_t line = editor_current_line(e);
                 size_t column = e->cursor - e->lines[line].begin;
@@ -166,35 +208,47 @@ int editor_start_interactive(Editor *e, const char *file_path)
         }
     }
 
-    printf("\033[2J");
-
-    term.c_lflag |= ECHO;
-    tcsetattr(0, 0, &term);
-
-    return 0;
+defer:
+    if (terminal_prepared) {
+        printf("\033[2J");
+        term.c_lflag |= ECHO;
+        tcsetattr(0, 0, &term);
+    }
+    return result;
 }
 
 int main(int argc, char **argv)
 {
+    int result = 0;
+    FILE *f = NULL;
 
     if (argc < 2) {
         fprintf(stderr, "Usage: noed <input.txt>\n");
         fprintf(stderr, "ERROR: no input file is provided\n");
-        return 1;
+        return_defer(1);
     }
 
     const char *file_path = argv[1];
 
-    FILE *f = fopen(file_path, "rb");
+    f = fopen(file_path, "rb");
     if (f == NULL) {
         fprintf(stderr, "ERROR: could not open file %s: %s\n", file_path, strerror(errno));
-        return 1;
+        return_defer(1);
     }
 
     editor.data_count = fread(editor.data, 1, EDITOR_CAPACITY, f);
+    if (ferror(f)) {
+        fprintf(stderr, "ERROR: could not read file %s: %s\n", file_path, strerror(errno));
+        return_defer(1);
+    }
 
     fclose(f);
+    f = NULL;
 
     editor_recompute_lines(&editor);
-    return editor_start_interactive(&editor, file_path);
+    int exit_code = editor_start_interactive(&editor, file_path);
+    return_defer(exit_code);
+defer:
+    if (f) fclose(f);
+    return result;
 }
