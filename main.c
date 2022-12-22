@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -11,59 +12,84 @@
 #define return_defer(value) do { result = (value); goto defer; } while(0)
 #define UNUSED(x) (void)(x)
 
-#define EDITOR_CAPACITY (10*1024)
-
 typedef struct {
     size_t begin;
     size_t end;
 } Line;
 
 typedef struct {
+    Line *items;
+    size_t count;
+    size_t capacity;
+} Lines;
+
+typedef struct {
+    char *items;
+    size_t count;
+    size_t capacity;
+} Data;
+
+#define ITEMS_INIT_CAPACITY (10*1024)
+
+#define da_append(da, item) do {                                                       \
+    if ((da)->count >= (da)->capacity) {                                               \
+        (da)->capacity = (da)->capacity == 0 ? ITEMS_INIT_CAPACITY : (da)->capacity*2; \
+        (da)->items = realloc((da)->items, (da)->capacity*sizeof(*(da)->items));       \
+        assert((da)->items != NULL && "Buy more RAM lol");                             \
+    }                                                                                  \
+    (da)->items[(da)->count++] = (item);                                               \
+} while (0)
+
+#define da_reserve(da, desired_capacity) do {                                   \
+   if ((da)->capacity < desired_capacity) {                                     \
+       (da)->capacity = desired_capacity;                                       \
+       (da)->items = realloc((da)->items, (da)->capacity*sizeof(*(da)->items)); \
+   }                                                                            \
+} while(0)
+
+typedef struct {
     // TODO: replace data with rope
-    // TODO: use dynamic memory for data and lines
-    char data[EDITOR_CAPACITY];
-    size_t data_count;
-    Line lines[EDITOR_CAPACITY + 10];
-    size_t lines_count;
+    Data data;
+    Lines lines;
     size_t cursor;
 } Editor;
 
 // TODO: line recomputation only based on what was changed
 void editor_recompute_lines(Editor *e)
 {
-    e->lines_count = 0;
+    e->lines.count = 0;
 
     size_t begin = 0;
-    for (size_t i = 0; i < e->data_count; ++i) {
-        if (e->data[i] == '\n') {
-            e->lines[e->lines_count].begin = begin;
-            e->lines[e->lines_count].end = i;
-            e->lines_count += 1;
+    for (size_t i = 0; i < e->data.count; ++i) {
+        if (e->data.items[i] == '\n') {
+            da_append(&e->lines, ((Line) {
+                .begin = begin,
+                .end = i,
+            }));
             begin = i + 1;
         }
     }
 
-    e->lines[e->lines_count].begin = begin;
-    e->lines[e->lines_count].end = e->data_count;
-    e->lines_count += 1;
+    da_append(&e->lines, ((Line) {
+        .begin = begin,
+        .end = e->data.count,
+    }));
 }
 
 void editor_insert_char(Editor *e, char x)
 {
-    if (e->data_count < EDITOR_CAPACITY) {
-        memmove(&e->data[e->cursor + 1], &e->data[e->cursor], e->data_count - e->cursor);
-        e->data[e->cursor] = x;
-        e->cursor += 1;
-        e->data_count += 1;
-        editor_recompute_lines(e);
-    }
+    da_append(&e->data, '\0');
+    memmove(&e->data.items[e->cursor + 1], &e->data.items[e->cursor], e->data.count - 1 - e->cursor);
+    e->data.items[e->cursor] = x;
+    e->cursor += 1;
+    editor_recompute_lines(e);
 }
 
 size_t editor_current_line(const Editor *e)
 {
-    assert(e->cursor <= e->data_count);
-    for (size_t i = 0; i < e->lines_count; ++i) {
-        if (e->lines[i].begin <= e->cursor && e->cursor <= e->lines[i].end) {
+    assert(e->cursor <= e->data.count);
+    for (size_t i = 0; i < e->lines.count; ++i) {
+        if (e->lines.items[i].begin <= e->cursor && e->cursor <= e->lines.items[i].end) {
             return i;
         }
     }
@@ -73,12 +99,12 @@ size_t editor_current_line(const Editor *e)
 void editor_rerender(const Editor *e, bool insert)
 {
     printf("\033[2J\033[H");
-    fwrite(e->data, 1, e->data_count, stdout);
+    fwrite(e->data.items, sizeof(*e->data.items), e->data.count, stdout);
     printf("\n");
     // TODO: print the mode indicator on the bottom
     if (insert) printf("[INSERT]");
     size_t line = editor_current_line(e);
-    printf("\033[%zu;%zuH", line + 1, e->cursor - e->lines[line].begin + 1);
+    printf("\033[%zu;%zuH", line + 1, e->cursor - e->lines.items[line].begin + 1);
 }
 
 static Editor editor = {0};
@@ -100,7 +126,7 @@ bool editor_save_to_file(Editor *e, const char *file_path)
         printf("ERROR: could not open file %s for writing: %s\n", file_path, strerror(errno));
         return_defer(false);
     }
-    fwrite(e->data, 1, e->data_count, f);
+    fwrite(e->data.items, sizeof(*e->data.items), e->data.count, f);
     if (ferror(f)) {
         printf("ERROR: could not write into file %s: %s\n", file_path, strerror(errno));
         return_defer(false);
@@ -173,11 +199,11 @@ int editor_start_interactive(Editor *e, const char *file_path)
             // TODO: backspace delete
             case 's': {
                 size_t line = editor_current_line(e);
-                size_t column = e->cursor - e->lines[line].begin;
-                if (line < e->lines_count - 1) {
-                    e->cursor = e->lines[line + 1].begin + column;
-                    if (e->cursor > e->lines[line + 1].end) {
-                        e->cursor = e->lines[line + 1].end;
+                size_t column = e->cursor - e->lines.items[line].begin;
+                if (line < e->lines.count - 1) {
+                    e->cursor = e->lines.items[line + 1].begin + column;
+                    if (e->cursor > e->lines.items[line + 1].end) {
+                        e->cursor = e->lines.items[line + 1].end;
                     }
                 }
             }
@@ -185,11 +211,11 @@ int editor_start_interactive(Editor *e, const char *file_path)
 
             case 'w': {
                 size_t line = editor_current_line(e);
-                size_t column = e->cursor - e->lines[line].begin;
+                size_t column = e->cursor - e->lines.items[line].begin;
                 if (line > 0) {
-                    e->cursor = e->lines[line - 1].begin + column;
-                    if (e->cursor > e->lines[line - 1].end) {
-                        e->cursor = e->lines[line - 1].end;
+                    e->cursor = e->lines.items[line - 1].begin + column;
+                    if (e->cursor > e->lines.items[line - 1].end) {
+                        e->cursor = e->lines.items[line - 1].end;
                     }
                 }
             }
@@ -201,7 +227,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
             break;
 
             case 'd': {
-                if (editor.cursor < e->data_count) e->cursor += 1;
+                if (editor.cursor < e->data.count) e->cursor += 1;
             }
             break;
             }
@@ -215,6 +241,18 @@ defer:
         tcsetattr(0, 0, &term);
     }
     return result;
+}
+
+int get_file_size(FILE *f, size_t *out)
+{
+    long saved = ftell(f);
+    if (saved < 0) return errno;
+    if (fseek(f, 0, SEEK_END) < 0) return errno;
+    long size = ftell(f);
+    if (size < 0) return errno;
+    if (fseek(f, saved, SEEK_SET) < 0) return errno;
+    *out = (size_t) size;
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -236,11 +274,24 @@ int main(int argc, char **argv)
         return_defer(1);
     }
 
-    editor.data_count = fread(editor.data, 1, EDITOR_CAPACITY, f);
+    size_t file_size = 0;
+    int err = get_file_size(f, &file_size);
+    if (err != 0) {
+        fprintf(stderr, "ERROR: could not determine the size of the file %s: %s\n", file_path, strerror(errno));
+        return_defer(1);
+    }
+    da_reserve(&editor.data, file_size);
+
+    size_t n = fread(editor.data.items, sizeof(*editor.data.items), file_size, f);
+    while (n < file_size && !ferror(f)) {
+        size_t m = fread(editor.data.items + n, sizeof(*editor.data.items), file_size - n, f);
+        n += m;
+    }
     if (ferror(f)) {
         fprintf(stderr, "ERROR: could not read file %s: %s\n", file_path, strerror(errno));
         return_defer(1);
     }
+    editor.data.count = n;
 
     fclose(f);
     f = NULL;
