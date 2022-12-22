@@ -147,7 +147,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
             if (x == 27) {
                 insert = false;
                 // TODO: proper saving.
-                // Probably by pressing something int the command mode.
+                // Probably by pressing something in the command mode.
                 editor_save_to_file(e, file_path);
             } else {
                 // TODO: allow inserting only printable ASCII
