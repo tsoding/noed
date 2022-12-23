@@ -49,13 +49,20 @@ typedef struct {
 
 typedef struct {
     // TODO: replace data with rope
+    // I'm not sure if the rope is not gonna be overkill at this point.
+    // Maybe we should introduce it gradually. Like first let's separate
+    // the data into equal chunks, that we lookup with binary search. Then
+    // see if it's sufficient.
     Data data;
     Lines lines;
     size_t cursor;
     size_t view_row;
 } Editor;
 
-// TODO: line recomputation only based on what was changed
+// TODO: line recomputation only based on what was changed.
+// For example, if you changed on line, only that line and all of the lines
+// afterwards require recomputation. Any lines before the current lines basically
+// stay the same.
 void editor_recompute_lines(Editor *e)
 {
     e->lines.count = 0;
@@ -84,6 +91,16 @@ void editor_insert_char(Editor *e, char x)
     e->data.items[e->cursor] = x;
     e->cursor += 1;
     editor_recompute_lines(e);
+}
+
+void editor_backdelete_char(Editor *e)
+{
+    if (0 < e->cursor && e->cursor <= e->data.count) {
+        memmove(&e->data.items[e->cursor - 1], &e->data.items[e->cursor], e->data.count - e->cursor);
+        e->data.count -= 1;
+        e->cursor -= 1;
+        editor_recompute_lines(e);
+    }
 }
 
 size_t editor_current_line(const Editor *e)
@@ -193,19 +210,36 @@ int editor_start_interactive(Editor *e, const char *file_path)
         // TODO: there is a flickering when run without tmux
         editor_rerender(e, insert);
 
+
         if (insert) {
             int x = fgetc(stdin);
-            if (x == 27) {
+            switch (x) {
+            case 27: {
                 insert = false;
                 // TODO: proper saving.
                 // Probably by pressing something in the command mode.
                 editor_save_to_file(e, file_path);
-            } else {
+            }
+            break;
+
+            case 126: {
+                // TODO: delete
+                // May require handling escape sequences
+            } break;
+
+            case 127: {
+                editor_backdelete_char(&editor);
+            }
+            break;
+
+            default: {
                 // TODO: allow inserting only printable ASCII
                 editor_insert_char(&editor, x);
             }
+            }
         } else {
             int x = fgetc(stdin);
+            fprintf(stderr, "key: %d\n", x);
             switch (x) {
             case 'q': {
                 // TODO: when the editor exists the shell prompt is shifted
@@ -221,7 +255,6 @@ int editor_start_interactive(Editor *e, const char *file_path)
             // TODO: preserve the column when moving up and down
             // Right now if the next line is shorter the current column value is clamped and lost.
             // Maybe cursor should be a pair (row, column) instead?
-            // TODO: backspace delete
             case 's': {
                 size_t line = editor_current_line(e);
                 size_t column = e->cursor - e->lines.items[line].begin;
@@ -255,6 +288,21 @@ int editor_start_interactive(Editor *e, const char *file_path)
                 if (editor.cursor < e->data.count) e->cursor += 1;
             }
             break;
+
+            case 126: {
+                // TODO: delete
+                // May require handling escape sequences since the Delete key seems to be producing sequence [27, 91, 51, 126]
+            } break;
+
+            case 127: {
+                editor_backdelete_char(e);
+            }
+            break;
+
+            case '\n': {
+                editor_insert_char(e, '\n');
+            }
+            break;
             }
         }
     }
@@ -282,8 +330,6 @@ int get_file_size(FILE *f, size_t *out)
 
 int main(int argc, char **argv)
 {
-    //////////////////////////////
-
     int result = 0;
     FILE *f = NULL;
 
@@ -295,6 +341,7 @@ int main(int argc, char **argv)
 
     const char *file_path = argv[1];
 
+    // TODO: implement an ability to create new files
     f = fopen(file_path, "rb");
     if (f == NULL) {
         fprintf(stderr, "ERROR: could not open file %s: %s\n", file_path, strerror(errno));
