@@ -200,8 +200,16 @@ size_t editor_current_line(const Editor *e)
 
 void editor_rerender(Editor *e, bool insert)
 {
+    printf("\033[2J\033[H");
+
+    const char *insert_label = "-- INSERT --";
+
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+    if (w.ws_row < 2 || w.ws_col < strlen(insert_label)) return;
+
+    w.ws_row -= 1;
 
     size_t cursor_row = editor_current_line(e);
     size_t cursor_col = e->cursor - e->lines.items[cursor_row].begin;
@@ -219,7 +227,6 @@ void editor_rerender(Editor *e, bool insert)
         e->view_col = cursor_col - w.ws_col + 1;
     }
 
-    printf("\033[2J\033[H");
     for (size_t i = 0; i < w.ws_row; ++i) {
         printf("\033[%zu;%dH", i + 1, 1);
         size_t row = e->view_row + i;
@@ -238,11 +245,10 @@ void editor_rerender(Editor *e, bool insert)
         }
     }
 
+    if (insert) printf("\033[%d;%dH%s", w.ws_row + 1, 1, insert_label);
+
     if (cursor_col > w.ws_col) cursor_col = w.ws_col;
     printf("\033[%zu;%zuH", (cursor_row - e->view_row) + 1, cursor_col + 1);
-
-    // TODO: print the mode indicator on the bottom
-    UNUSED(insert);
 }
 
 bool editor_save_to_file(Editor *e, const char *file_path)
@@ -301,8 +307,8 @@ int editor_start_interactive(Editor *e, const char *file_path)
     bool insert = false;
     while (!quit && !feof(stdin)) {
         // TODO: there is a flickering when run without tmux
+        // TODO: there is no rerendering on window resize
         editor_rerender(e, insert);
-
 
         if (insert) {
             int x = fgetc(stdin);
@@ -332,7 +338,6 @@ int editor_start_interactive(Editor *e, const char *file_path)
             }
         } else {
             int x = fgetc(stdin);
-            fprintf(stderr, "key: %d\n", x);
             switch (x) {
             case 'q': {
                 // TODO: when the editor exits the shell prompt is shifted
