@@ -44,6 +44,7 @@ typedef struct {
    if ((da)->capacity < desired_capacity) {                                     \
        (da)->capacity = desired_capacity;                                       \
        (da)->items = realloc((da)->items, (da)->capacity*sizeof(*(da)->items)); \
+       assert((da)->items != NULL && "Buy more RAM lol");                       \
    }                                                                            \
 } while(0)
 
@@ -61,8 +62,8 @@ typedef struct {
 
 // TODO: Line recomputation only based on what was changed.
 //
-// For example, if you changed one line, only that line and all of the lines
-// afterwards require recomputation. Any lines before the current line basically
+// For example, if you changed one line, only that line and all of the consequent
+// lines require recomputation. Any lines before the current line basically
 // stay the same.
 //
 // We can even recompute them kinda lazily. We don't really need any lines after
@@ -248,7 +249,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
             fprintf(stderr, "key: %d\n", x);
             switch (x) {
             case 'q': {
-                // TODO: when the editor exists the shell prompt is shifted
+                // TODO: when the editor exits the shell prompt is shifted
                 quit = true;
             }
             break;
