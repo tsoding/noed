@@ -60,6 +60,14 @@ typedef struct {
     size_t view_row;
 } Editor;
 
+void editor_free_buffers(Editor *e)
+{
+    free(e->data.items);
+    free(e->lines.items);
+    e->data.items = NULL;
+    e->lines.items = NULL;
+}
+
 // TODO: Line recomputation only based on what was changed.
 //
 // For example, if you changed one line, only that line and all of the consequent
@@ -157,8 +165,6 @@ void editor_rerender(Editor *e, bool insert)
     UNUSED(insert);
 }
 
-static Editor editor = {0};
-
 bool editor_save_to_file(Editor *e, const char *file_path)
 {
     bool result = true;
@@ -235,13 +241,13 @@ int editor_start_interactive(Editor *e, const char *file_path)
             } break;
 
             case 127: {
-                editor_backdelete_char(&editor);
+                editor_backdelete_char(e);
             }
             break;
 
             default: {
                 // TODO: allow inserting only printable ASCII
-                editor_insert_char(&editor, x);
+                editor_insert_char(e, x);
             }
             }
         } else {
@@ -287,12 +293,12 @@ int editor_start_interactive(Editor *e, const char *file_path)
             break;
 
             case 'a': {
-                if (editor.cursor > 0) editor.cursor -= 1;
+                if (e->cursor > 0) e->cursor -= 1;
             }
             break;
 
             case 'd': {
-                if (editor.cursor < e->data.count) e->cursor += 1;
+                if (e->cursor < e->data.count) e->cursor += 1;
             }
             break;
 
@@ -339,6 +345,7 @@ int main(int argc, char **argv)
 {
     int result = 0;
     FILE *f = NULL;
+    Editor editor = {0};
 
     if (argc < 2) {
         fprintf(stderr, "Usage: noed <input.txt>\n");
@@ -382,5 +389,6 @@ int main(int argc, char **argv)
     return_defer(exit_code);
 defer:
     if (f) fclose(f);
+    editor_free_buffers(&editor);
     return result;
 }
