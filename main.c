@@ -7,6 +7,8 @@
 
 #include <termios.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define return_defer(value) do { result = (value); goto defer; } while(0)
@@ -97,6 +99,72 @@ void editor_recompute_lines(Editor *e)
         .begin = begin,
         .end = e->data.count,
     }));
+}
+
+int get_file_size(FILE *f, size_t *out)
+{
+    long saved = ftell(f);
+    if (saved < 0) return errno;
+    if (fseek(f, 0, SEEK_END) < 0) return errno;
+    long size = ftell(f);
+    if (size < 0) return errno;
+    if (fseek(f, saved, SEEK_SET) < 0) return errno;
+    *out = (size_t) size;
+    return 0;
+}
+
+bool editor_open_file(Editor *e, const char *file_path)
+{
+    bool result = true;
+    FILE *f = NULL;
+
+    e->data.count = 0;
+    e->lines.count = 0;
+
+    struct stat statbuf;
+    if (stat(file_path, &statbuf) < 0) {
+        if (errno == ENOENT) {
+            return_defer(true);
+        } else {
+            fprintf(stderr, "ERROR: could not determine if file %s exists\n", file_path);
+            return_defer(false);
+        }
+    }
+
+    if ((statbuf.st_mode & S_IFMT) != S_IFREG) {
+        fprintf(stderr, "ERROR: %s is not a regular file\n", file_path);
+        return_defer(false);
+    }
+
+    f = fopen(file_path, "rb");
+    if (f == NULL) {
+        fprintf(stderr, "ERROR: could not open file %s: %s\n", file_path, strerror(errno));
+        return_defer(false);
+    }
+
+    size_t file_size = 0;
+    int err = get_file_size(f, &file_size);
+    if (err != 0) {
+        fprintf(stderr, "ERROR: could not determine the size of the file %s: %s\n", file_path, strerror(errno));
+        return_defer(false);
+    }
+    da_reserve(&e->data, file_size);
+
+    size_t n = fread(e->data.items, sizeof(*e->data.items), file_size, f);
+    while (n < file_size && !ferror(f)) {
+        size_t m = fread(e->data.items + n, sizeof(*e->data.items), file_size - n, f);
+        n += m;
+    }
+    if (ferror(f)) {
+        fprintf(stderr, "ERROR: could not read file %s: %s\n", file_path, strerror(errno));
+        return_defer(1);
+    }
+    e->data.count = n;
+
+defer:
+    if (result) editor_recompute_lines(e);
+    if (f) fclose(f);
+    return result;
 }
 
 void editor_insert_char(Editor *e, char x)
@@ -329,22 +397,9 @@ defer:
     return result;
 }
 
-int get_file_size(FILE *f, size_t *out)
-{
-    long saved = ftell(f);
-    if (saved < 0) return errno;
-    if (fseek(f, 0, SEEK_END) < 0) return errno;
-    long size = ftell(f);
-    if (size < 0) return errno;
-    if (fseek(f, saved, SEEK_SET) < 0) return errno;
-    *out = (size_t) size;
-    return 0;
-}
-
 int main(int argc, char **argv)
 {
     int result = 0;
-    FILE *f = NULL;
     Editor editor = {0};
 
     if (argc < 2) {
@@ -354,41 +409,11 @@ int main(int argc, char **argv)
     }
 
     const char *file_path = argv[1];
-
-    // TODO: implement an ability to create new files
-    f = fopen(file_path, "rb");
-    if (f == NULL) {
-        fprintf(stderr, "ERROR: could not open file %s: %s\n", file_path, strerror(errno));
-        return_defer(1);
-    }
-
-    size_t file_size = 0;
-    int err = get_file_size(f, &file_size);
-    if (err != 0) {
-        fprintf(stderr, "ERROR: could not determine the size of the file %s: %s\n", file_path, strerror(errno));
-        return_defer(1);
-    }
-    da_reserve(&editor.data, file_size);
-
-    size_t n = fread(editor.data.items, sizeof(*editor.data.items), file_size, f);
-    while (n < file_size && !ferror(f)) {
-        size_t m = fread(editor.data.items + n, sizeof(*editor.data.items), file_size - n, f);
-        n += m;
-    }
-    if (ferror(f)) {
-        fprintf(stderr, "ERROR: could not read file %s: %s\n", file_path, strerror(errno));
-        return_defer(1);
-    }
-    editor.data.count = n;
-
-    fclose(f);
-    f = NULL;
-
-    editor_recompute_lines(&editor);
+    editor_open_file(&editor, file_path);
     int exit_code = editor_start_interactive(&editor, file_path);
     return_defer(exit_code);
+
 defer:
-    if (f) fclose(f);
     editor_free_buffers(&editor);
     return result;
 }
