@@ -280,6 +280,7 @@ defer:
 
 int editor_start_interactive(Editor *e, const char *file_path)
 {
+    // TODO: implement undo
     int result = 0;
     bool terminal_prepared = false;
 
