@@ -59,10 +59,16 @@ typedef struct {
     size_t view_row;
 } Editor;
 
-// TODO: line recomputation only based on what was changed.
-// For example, if you changed on line, only that line and all of the lines
-// afterwards require recomputation. Any lines before the current lines basically
+// TODO: Line recomputation only based on what was changed.
+//
+// For example, if you changed one line, only that line and all of the lines
+// afterwards require recomputation. Any lines before the current line basically
 // stay the same.
+//
+// We can even recompute them kinda lazily. We don't really need any lines after
+// `e->view_row + w.ws_row - 1`. So we can only compute them as the view shifts down.
+// We can clearly see that there are some uncomputed lines if
+// `e->lines.items[e->lines.count - 1].end < e->data.count`
 void editor_recompute_lines(Editor *e)
 {
     e->lines.count = 0;
