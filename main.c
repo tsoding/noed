@@ -200,6 +200,7 @@ size_t editor_current_line(const Editor *e)
 
 void editor_rerender(Editor *e, bool insert)
 {
+    // TODO: render special characters properly
     printf("\033[2J\033[H");
 
     const char *insert_label = "-- INSERT --";
