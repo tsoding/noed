@@ -60,6 +60,7 @@ typedef struct {
     Lines lines;
     size_t cursor;
     size_t view_row;
+    size_t view_col;
 } Editor;
 
 void editor_free_buffers(Editor *e)
@@ -211,6 +212,13 @@ void editor_rerender(Editor *e, bool insert)
         e->view_row = cursor_row - w.ws_row + 1;
     }
 
+    if (cursor_col < e->view_col) {
+        e->view_col = cursor_col;
+    }
+    if (cursor_col >= e->view_col + w.ws_col) {
+        e->view_col = cursor_col - w.ws_col + 1;
+    }
+
     printf("\033[2J\033[H");
     for (size_t i = 0; i < w.ws_row; ++i) {
         printf("\033[%zu;%dH", i + 1, 1);
@@ -218,8 +226,12 @@ void editor_rerender(Editor *e, bool insert)
         if (row < e->lines.count) {
             const char *line_start = e->data.items + e->lines.items[row].begin;
             size_t line_size = e->lines.items[row].end - e->lines.items[row].begin;
-            // TODO: implement horizontal scrolling
+            size_t view_col = e->view_col;
+            if (view_col > line_size) view_col = line_size;
+            line_start += view_col;
+            line_size -= view_col;
             if (line_size > w.ws_col) line_size = w.ws_col;
+            // TODO: implement word wrapping mode
             fwrite(line_start, sizeof(*e->data.items), line_size, stdout);
         } else {
             fputs("~", stdout);
