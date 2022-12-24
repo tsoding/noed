@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #define return_defer(value) do { result = (value); goto defer; } while(0)
 #define UNUSED(x) (void)(x)
@@ -102,22 +103,10 @@ void editor_recompute_lines(Editor *e)
     }));
 }
 
-int get_file_size(FILE *f, size_t *out)
-{
-    long saved = ftell(f);
-    if (saved < 0) return errno;
-    if (fseek(f, 0, SEEK_END) < 0) return errno;
-    long size = ftell(f);
-    if (size < 0) return errno;
-    if (fseek(f, saved, SEEK_SET) < 0) return errno;
-    *out = (size_t) size;
-    return 0;
-}
-
 bool editor_open_file(Editor *e, const char *file_path)
 {
     bool result = true;
-    FILE *f = NULL;
+    int fd = -1;
 
     e->data.count = 0;
     e->lines.count = 0;
@@ -137,34 +126,34 @@ bool editor_open_file(Editor *e, const char *file_path)
         return_defer(false);
     }
 
-    f = fopen(file_path, "rb");
-    if (f == NULL) {
+    fd = open(file_path, O_RDONLY);
+    if (fd < 0) {
         fprintf(stderr, "ERROR: could not open file %s: %s\n", file_path, strerror(errno));
         return_defer(false);
     }
 
-    size_t file_size = 0;
-    int err = get_file_size(f, &file_size);
-    if (err != 0) {
-        fprintf(stderr, "ERROR: could not determine the size of the file %s: %s\n", file_path, strerror(errno));
-        return_defer(false);
-    }
+    size_t file_size = statbuf.st_size;
     da_reserve(&e->data, file_size);
 
-    size_t n = fread(e->data.items, sizeof(*e->data.items), file_size, f);
-    while (n < file_size && !ferror(f)) {
-        size_t m = fread(e->data.items + n, sizeof(*e->data.items), file_size - n, f);
+    ssize_t n = read(fd, e->data.items, file_size);
+    if (n < 0) {
+        fprintf(stderr, "ERROR: could not read file %s: %s\n", file_path, strerror(errno));
+        return_defer(false);
+    }
+    while ((size_t) n < file_size) {
+        ssize_t m = read(fd, e->data.items + n, file_size - n);
+        if (m < 0) {
+            fprintf(stderr, "ERROR: could not read file %s: %s\n", file_path, strerror(errno));
+            return_defer(false);
+        }
         n += m;
     }
-    if (ferror(f)) {
-        fprintf(stderr, "ERROR: could not read file %s: %s\n", file_path, strerror(errno));
-        return_defer(1);
-    }
+
     e->data.count = n;
 
 defer:
     if (result) editor_recompute_lines(e);
-    if (f) fclose(f);
+    if (fd >= 0) close(fd);
     return result;
 }
 
