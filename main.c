@@ -244,8 +244,8 @@ void editor_rerender(Editor *e, bool insert)
 bool editor_save_to_file(Editor *e, const char *file_path)
 {
     bool result = true;
-    FILE *f = fopen(file_path, "wb");
-    if (f == NULL) {
+    int fd = open(file_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0) {
         // TODO: we need to log something here,
         // but we can't easily do that if we are already in the special terminal mode with
         // no ECHO and no ICANON (it will just look weird).
@@ -255,16 +255,24 @@ bool editor_save_to_file(Editor *e, const char *file_path)
         //
         // We can just create a dedicated arena for the bubbling errors. I had this idea for quite some
         // time already, maybe we can test it in here.
-        printf("ERROR: could not open file %s for writing: %s\n", file_path, strerror(errno));
+        fprintf(stderr, "ERROR: could not open file %s for writing: %s\n", file_path, strerror(errno));
         return_defer(false);
     }
-    fwrite(e->data.items, sizeof(*e->data.items), e->data.count, f);
-    if (ferror(f)) {
-        printf("ERROR: could not write into file %s: %s\n", file_path, strerror(errno));
+    ssize_t n = write(fd, e->data.items, e->data.count);
+    if (n < 0) {
+        fprintf(stderr, "ERROR: could not write into file %s: %s\n", file_path, strerror(errno));
         return_defer(false);
+    }
+    while ((size_t) n < e->data.count) {
+        ssize_t m = write(fd, e->data.items + n, e->data.count - n);
+        if (m < 0) {
+            fprintf(stderr, "ERROR: could not write into file %s: %s\n", file_path, strerror(errno));
+            return_defer(false);
+        }
+        n += m;
     }
 defer:
-    if (f) UNUSED(fclose(f));
+    if (fd >= 0) UNUSED(close(fd));
     return result;
 }
 
