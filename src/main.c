@@ -13,6 +13,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+// Escape Sequences
+#define ES_ESCAPE "\x1b"
+#define ES_BACKSPACE "\x7f"
+#define ES_DELETE "\x1b\x5b\x33\x7e"
+
 #define return_defer(value) do { result = (value); goto defer; } while(0)
 #define UNUSED(x) (void)(x)
 #define UNIMPLEMENTED(message) \
@@ -361,14 +366,14 @@ int editor_start_interactive(Editor *e, const char *file_path)
         assert((size_t) seq_len < sizeof(seq));
 
         if (insert) {
-            if (strcmp(seq, "\x1b") == 0) {
+            if (strcmp(seq, ES_ESCAPE) == 0) {
                 insert = false;
                 // TODO: proper saving.
                 // Probably by pressing something in the command mode.
                 editor_save_to_file(e, file_path);
-            } else if (strcmp(seq, "\x7f") == 0) {
+            } else if (strcmp(seq, ES_BACKSPACE) == 0) {
                 editor_backdelete_char(e);
-            } else if (strcmp(seq, "\x1b\x5b\x33\x7e") == 0) {
+            } else if (strcmp(seq, ES_DELETE) == 0) {
                 editor_delete_char(e);
             } else if (strcmp(seq, "\n") == 0) {
                 editor_insert_char(e, '\n');
@@ -405,9 +410,9 @@ int editor_start_interactive(Editor *e, const char *file_path)
                 if (e->cursor > 0) e->cursor -= 1;
             } else if (strcmp(seq, "d") == 0) {
                 if (e->cursor < e->data.count) e->cursor += 1;
-            } else if (strcmp(seq, "\x1b\x5b\x33\x7e") == 0) {
+            } else if (strcmp(seq, ES_DELETE) == 0) {
                 editor_delete_char(e);
-            } else if (strcmp(seq, "\x7f") == 0) {
+            } else if (strcmp(seq, ES_BACKSPACE) == 0) {
                 editor_backdelete_char(e);
             } else if (strcmp(seq, "\n") == 0) {
                 editor_insert_char(e, '\n');
@@ -460,3 +465,4 @@ defer:
 // - Make Data a collection of uint32_t instead of chars that stores unicode code points
 // - Encode/decode utf-8 on save/load
 // - ...
+// TODO: Simple keywords highlighting
