@@ -305,6 +305,43 @@ bool is_display(char x)
     return ' ' <= x && x <= '~';
 }
 
+void editor_move_char_right(Editor *e)
+{
+    if (e->cursor < e->data.count) e->cursor += 1;
+}
+
+void editor_move_char_left(Editor *e)
+{
+    if (e->cursor > 0) e->cursor -= 1;
+}
+
+void editor_move_line_down(Editor *e)
+{
+    size_t line = editor_current_line(e);
+    size_t column = e->cursor - e->lines.items[line].begin;
+    if (line > 0) {
+        e->cursor = e->lines.items[line - 1].begin + column;
+        if (e->cursor > e->lines.items[line - 1].end) {
+            e->cursor = e->lines.items[line - 1].end;
+        }
+    }
+}
+
+void editor_move_line_up(Editor *e)
+{
+    // TODO: preserve the column when moving up and down
+    // Right now if the next line is shorter the current column value is clamped and lost.
+    // Maybe cursor should be a pair (row, column) instead?
+    size_t line = editor_current_line(e);
+    size_t column = e->cursor - e->lines.items[line].begin;
+    if (line < e->lines.count - 1) {
+        e->cursor = e->lines.items[line + 1].begin + column;
+        if (e->cursor > e->lines.items[line + 1].end) {
+            e->cursor = e->lines.items[line + 1].end;
+        }
+    }
+}
+
 int editor_start_interactive(Editor *e, const char *file_path)
 {
     int result = 0;
@@ -352,9 +389,11 @@ int editor_start_interactive(Editor *e, const char *file_path)
         errno = 0;
         int seq_len = read(STDIN_FILENO, seq, sizeof(seq));
         if (errno == EINTR) {
-            // Window got resized. Since SIGWINCH is the only signal that we handle right now, there is no need to
-            // check if EINTR is caused specifically by SIGWINCH. In the future it may change. But even in the future
-            // I feel like just doing continue on EINTR regardless of the signal is sufficient.
+            // Window got resized. Since SIGWINCH is the only signal that we
+            // handle right now, there is no need to check if EINTR is caused
+            // specifically by SIGWINCH. In the future it may change. But even
+            // in the future I feel like just doing continue on EINTR regardless
+            // of the signal is sufficient.
             continue;
         }
         if (errno > 0) {
@@ -386,30 +425,13 @@ int editor_start_interactive(Editor *e, const char *file_path)
             } else if (strcmp(seq, "\x1b ") == 0 || strcmp(seq, " ") == 0) {
                 insert = true;
             } else if (strcmp(seq, "s") == 0) {
-                // TODO: preserve the column when moving up and down
-                // Right now if the next line is shorter the current column value is clamped and lost.
-                // Maybe cursor should be a pair (row, column) instead?
-                size_t line = editor_current_line(e);
-                size_t column = e->cursor - e->lines.items[line].begin;
-                if (line < e->lines.count - 1) {
-                    e->cursor = e->lines.items[line + 1].begin + column;
-                    if (e->cursor > e->lines.items[line + 1].end) {
-                        e->cursor = e->lines.items[line + 1].end;
-                    }
-                }
+                editor_move_line_up(e);
             } else if (strcmp(seq, "w") == 0) {
-                size_t line = editor_current_line(e);
-                size_t column = e->cursor - e->lines.items[line].begin;
-                if (line > 0) {
-                    e->cursor = e->lines.items[line - 1].begin + column;
-                    if (e->cursor > e->lines.items[line - 1].end) {
-                        e->cursor = e->lines.items[line - 1].end;
-                    }
-                }
+                editor_move_line_down(e);
             } else if (strcmp(seq, "a") == 0) {
-                if (e->cursor > 0) e->cursor -= 1;
+                editor_move_char_left(e);
             } else if (strcmp(seq, "d") == 0) {
-                if (e->cursor < e->data.count) e->cursor += 1;
+                editor_move_char_right(e);
             } else if (strcmp(seq, ES_DELETE) == 0) {
                 editor_delete_char(e);
             } else if (strcmp(seq, ES_BACKSPACE) == 0) {
