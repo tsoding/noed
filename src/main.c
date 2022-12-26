@@ -210,37 +210,44 @@ size_t editor_current_line(const Editor *e)
     return 0;
 }
 
-void editor_rerender(Editor *e, bool insert)
+typedef struct {
+    char *chars;
+    size_t cursor_row, cursor_col;
+    size_t rows, cols;
+} Display;
+
+void editor_rerender(Editor *e, bool insert, Display *d)
 {
-    struct winsize w;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-
-    printf("\033[2J\033[H");
-
     const char *insert_label = "-- INSERT --";
 
-    if (w.ws_row < 2 || w.ws_col < strlen(insert_label)) return;
+    for (size_t i = 0; i < d->rows*d->cols; ++i) {
+        d->chars[i] = ' ';
+    }
 
-    w.ws_row -= 1;
+    size_t rows = d->rows;
+    size_t cols = d->cols;
+
+    if (rows < 2 || cols < strlen(insert_label)) return;
+
+    rows -= 1;
 
     size_t cursor_row = editor_current_line(e);
     size_t cursor_col = e->cursor - e->lines.items[cursor_row].begin;
     if (cursor_row < e->view_row) {
         e->view_row = cursor_row;
     }
-    if (cursor_row >= e->view_row + w.ws_row) {
-        e->view_row = cursor_row - w.ws_row + 1;
+    if (cursor_row >= e->view_row + rows) {
+        e->view_row = cursor_row - rows + 1;
     }
 
     if (cursor_col < e->view_col) {
         e->view_col = cursor_col;
     }
-    if (cursor_col >= e->view_col + w.ws_col) {
-        e->view_col = cursor_col - w.ws_col + 1;
+    if (cursor_col >= e->view_col + cols) {
+        e->view_col = cursor_col - cols + 1;
     }
 
-    for (size_t i = 0; i < w.ws_row; ++i) {
-        printf("\033[%zu;%dH", i + 1, 1);
+    for (size_t i = 0; i < rows; ++i) {
         size_t row = e->view_row + i;
         if (row < e->lines.count) {
             const char *line_start = e->data.items + e->lines.items[row].begin;
@@ -249,18 +256,20 @@ void editor_rerender(Editor *e, bool insert)
             if (view_col > line_size) view_col = line_size;
             line_start += view_col;
             line_size -= view_col;
-            if (line_size > w.ws_col) line_size = w.ws_col;
-            fwrite(line_start, sizeof(*e->data.items), line_size, stdout);
+            if (line_size > cols) line_size = cols;
+            memcpy(d->chars + i*d->cols, line_start, line_size);
         } else {
-            fputs("~", stdout);
+            memcpy(d->chars + i*d->cols, "~", 1);
         }
     }
 
-    if (insert) printf("\033[%d;%dH%s", w.ws_row + 1, 1, insert_label);
+    if (insert) {
+        memcpy(d->chars + rows*d->cols, insert_label, strlen(insert_label));
+    }
 
-    if (cursor_col > w.ws_col) cursor_col = w.ws_col;
-    printf("\033[%zu;%zuH", (cursor_row - e->view_row) + 1, cursor_col + 1);
-    fflush(stdout);
+    if (cursor_col > cols) cursor_col = cols;
+    d->cursor_row = cursor_row - e->view_row;
+    d->cursor_col = cursor_col;
 }
 
 bool editor_save_to_file(Editor *e, const char *file_path)
@@ -389,6 +398,28 @@ void editor_move_paragraph_down(Editor *e)
     e->cursor = e->lines.items[row].begin;
 }
 
+void display_resize(Display *d)
+{
+    struct winsize w;
+    int err = ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    assert(err == 0);
+    d->rows = w.ws_row;
+    d->cols = w.ws_col;
+    d->chars = realloc(d->chars, d->rows*d->cols*sizeof(*d->chars));
+    assert(d->chars != NULL && "Buy more RAM lol");
+}
+
+void display_flush(FILE *target, Display *d)
+{
+    // TODO: efficient rerendering with patching and stuff
+    fprintf(target, "\033[H");
+    for (size_t row = 0; row < d->rows; ++row) {
+        fwrite(d->chars + row*d->cols, sizeof(*d->chars), d->cols, target);
+    }
+    fprintf(target, "\033[%zu;%zuH", d->cursor_row + 1, d->cursor_col + 1);
+    fflush(target);
+}
+
 int editor_start_interactive(Editor *e, const char *file_path)
 {
     int result = 0;
@@ -424,10 +455,14 @@ int editor_start_interactive(Editor *e, const char *file_path)
 
     signals_prepared = true;
 
+    Display d = {0};
+    display_resize(&d);
+
     bool quit = false;
     bool insert = false;
     while (!quit) {
-        editor_rerender(e, insert);
+        editor_rerender(e, insert, &d);
+        display_flush(stdout, &d);
 
         char seq[MAX_ESC_SEQ_LEN] = {0};
         errno = 0;
@@ -438,6 +473,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
             // specifically by SIGWINCH. In the future it may change. But even
             // in the future I feel like just doing continue on EINTR regardless
             // of the signal is sufficient.
+            display_resize(&d);
             continue;
         }
         if (errno > 0) {
@@ -532,7 +568,6 @@ defer:
     return result;
 }
 
-// TODO: there is flickering when running without tmux
 // TODO: incremental search
 // TODO: undo/redo
 // TODO: word wrapping mode
