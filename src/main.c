@@ -1,9 +1,10 @@
 #include <assert.h>
+#include <ctype.h>
+#include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <stdbool.h>
 
 #include <signal.h>
 #include <termios.h>
@@ -342,6 +343,50 @@ void editor_move_line_up(Editor *e)
     }
 }
 
+void editor_move_word_left(Editor *e)
+{
+    while (e->cursor > 0 && !isalnum(e->data.items[e->cursor])) {
+        e->cursor -= 1;
+    }
+    while (e->cursor > 0 && isalnum(e->data.items[e->cursor])) {
+        e->cursor -= 1;
+    }
+}
+
+void editor_move_word_right(Editor *e)
+{
+    while (e->cursor < e->data.count - 1 && !isalnum(e->data.items[e->cursor])) {
+        e->cursor += 1;
+    }
+    while (e->cursor < e->data.count - 1 && isalnum(e->data.items[e->cursor])) {
+        e->cursor += 1;
+    }
+}
+
+void editor_move_paragraph_up(Editor *e)
+{
+    size_t row = editor_current_line(e);
+    while (row > 0 && (e->lines.items[row].end - e->lines.items[row].begin) == 0) {
+        row -= 1;
+    }
+    while (row > 0 && (e->lines.items[row].end - e->lines.items[row].begin) > 0) {
+        row -= 1;
+    }
+    e->cursor = e->lines.items[row].begin;
+}
+
+void editor_move_paragraph_down(Editor *e)
+{
+    size_t row = editor_current_line(e);
+    while (row < e->lines.count - 1 && (e->lines.items[row].end - e->lines.items[row].begin) == 0) {
+        row += 1;
+    }
+    while (row < e->lines.count - 1 && (e->lines.items[row].end - e->lines.items[row].begin) > 0) {
+        row += 1;
+    }
+    e->cursor = e->lines.items[row].begin;
+}
+
 int editor_start_interactive(Editor *e, const char *file_path)
 {
     int result = 0;
@@ -432,6 +477,14 @@ int editor_start_interactive(Editor *e, const char *file_path)
                 editor_move_char_left(e);
             } else if (strcmp(seq, "d") == 0) {
                 editor_move_char_right(e);
+            } else if (strcmp(seq, "k") == 0) {
+                editor_move_word_left(e);
+            } else if (strcmp(seq, ";") == 0) {
+                editor_move_word_right(e);
+            } else if (strcmp(seq, "o") == 0) {
+                editor_move_paragraph_up(e);
+            } else if (strcmp(seq, "l") == 0) {
+                editor_move_paragraph_down(e);
             } else if (strcmp(seq, ES_DELETE) == 0) {
                 editor_delete_char(e);
             } else if (strcmp(seq, ES_BACKSPACE) == 0) {

@@ -20,11 +20,15 @@ We have two modes: Command and Insert. Just like in vi.
 | Key                                      | Description                            |
 |------------------------------------------|----------------------------------------|
 | <kbd>q</kbd>                             | Quit the editor                        |
-| <kbd>SPACE</kbd> or <kbd>Alt+SPACE</kbd> | Switch to Insert Mode                      |
+| <kbd>SPACE</kbd> or <kbd>Alt+SPACE</kbd> | Switch to Insert Mode                  |
 | <kbd>w</kbd>                             | Move up one line                       |
 | <kbd>s</kbd>                             | Move down one line                     |
 | <kbd>a</kbd>                             | Move left one character                |
 | <kbd>d</kbd>                             | Move right one character               |
+| <kbd>o</kbd>                             | Move up one paragraph                  |
+| <kbd>l</kbd>                             | Move down one paragraph                |
+| <kbd>k</kbd>                             | Move left one word                     |
+| <kbd>;</kbd>                             | Move right one word                    |
 | <kbd>DELETE</kbd>                        | Delete one character at the cursor     |
 | <kbd>BACKSPACE</kbd>                     | Delete one character before the cursor |
 | <kbd>ENTER</kbd>                         | Insert new line                        |
