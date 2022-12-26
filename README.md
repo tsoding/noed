@@ -8,5 +8,5 @@ Not [ed(1)](https://linux.die.net/man/1/ed).
 
 ```console
 $ ./build.sh
-$ ./noed ./test.txt
+$ ./build/noed ./src/main.c
 ```
