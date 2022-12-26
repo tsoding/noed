@@ -338,7 +338,6 @@ int editor_start_interactive(Editor *e, const char *file_path)
     bool quit = false;
     bool insert = false;
     while (!quit) {
-        // TODO: there is flickering when running without tmux
         editor_rerender(e, insert);
 
         // TODO: what's the biggest escape sequence?
@@ -451,6 +450,7 @@ defer:
     return result;
 }
 
+// TODO: there is flickering when running without tmux
 // TODO: undo/redo
 // TODO: word wrapping mode
 // TODO: render non-displayable characters safely
