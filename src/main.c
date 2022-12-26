@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#define MAX_ESC_SEQ_LEN 32
+
 // Escape Sequences
 #define ES_ESCAPE "\x1b"
 #define ES_BACKSPACE "\x7f"
@@ -42,7 +44,7 @@ typedef struct {
     char *items;
     size_t count;
     size_t capacity;
-} Data; // ur mom
+} Data;
 
 #define ITEMS_INIT_CAPACITY (10*1024)
 
@@ -427,10 +429,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
     while (!quit) {
         editor_rerender(e, insert);
 
-        // TODO: what's the biggest escape sequence?
-        // Or maybe we can try to read until we get EAGAIN?
-        // That way the max size of the sequence does not really matter
-        char seq[32] = {0};
+        char seq[MAX_ESC_SEQ_LEN] = {0};
         errno = 0;
         int seq_len = read(STDIN_FILENO, seq, sizeof(seq));
         if (errno == EINTR) {
@@ -447,7 +446,10 @@ int editor_start_interactive(Editor *e, const char *file_path)
         }
 
         assert(seq_len >= 0);
-        assert((size_t) seq_len < sizeof(seq));
+        if ((size_t) seq_len >= sizeof(seq)) {
+            // Escape sequence is too big. Ignoring it.
+            continue;
+        }
 
         if (insert) {
             if (strcmp(seq, "\x1b ") == 0 || strcmp(seq, ES_ESCAPE) == 0) {
