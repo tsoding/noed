@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdbool.h>
 
+#include <signal.h>
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -189,13 +190,12 @@ size_t editor_current_line(const Editor *e)
 
 void editor_rerender(Editor *e, bool insert)
 {
-    // TODO: render special characters properly
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
     printf("\033[2J\033[H");
 
     const char *insert_label = "-- INSERT --";
-
-    struct winsize w;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
     if (w.ws_row < 2 || w.ws_col < strlen(insert_label)) return;
 
@@ -228,7 +228,6 @@ void editor_rerender(Editor *e, bool insert)
             line_start += view_col;
             line_size -= view_col;
             if (line_size > w.ws_col) line_size = w.ws_col;
-            // TODO: implement word wrapping mode
             fwrite(line_start, sizeof(*e->data.items), line_size, stdout);
         } else {
             fputs("~", stdout);
@@ -239,6 +238,7 @@ void editor_rerender(Editor *e, bool insert)
 
     if (cursor_col > w.ws_col) cursor_col = w.ws_col;
     printf("\033[%zu;%zuH", (cursor_row - e->view_row) + 1, cursor_col + 1);
+    fflush(stdout);
 }
 
 bool editor_save_to_file(Editor *e, const char *file_path)
@@ -276,11 +276,21 @@ defer:
     return result;
 }
 
+void window_resize_signal(int signal)
+{
+    UNUSED(signal);
+}
+
+bool is_display(char x)
+{
+    return ' ' <= x && x <= '~';
+}
+
 int editor_start_interactive(Editor *e, const char *file_path)
 {
-    // TODO: implement undo
     int result = 0;
     bool terminal_prepared = false;
+    bool signals_prepared = false;
 
     if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
         fprintf(stderr, "ERROR: Please run the editor in the terminal!\n");
@@ -302,57 +312,65 @@ int editor_start_interactive(Editor *e, const char *file_path)
 
     terminal_prepared = true;
 
+    struct sigaction act, old = {0};
+    act.sa_handler = window_resize_signal;
+    if (sigaction(SIGWINCH, &act, &old) < 0) {
+        fprintf(stderr, "ERROR: could not set up window resize signal: %s\n", strerror(errno));
+        return_defer(1);
+    }
+
+    signals_prepared = true;
+
     bool quit = false;
     bool insert = false;
-    while (!quit && !feof(stdin)) {
-        // TODO: there is a flickering when run without tmux
-        // TODO: there is no rerendering on window resize
+    while (!quit) {
+        // TODO: there is flickering when running without tmux
         editor_rerender(e, insert);
 
+        // TODO: what's the biggest escape sequence?
+        // Or maybe we can try to read until we get EAGAIN?
+        // That way the max size of the sequence does not really matter
+        char seq[32] = {0};
+        errno = 0;
+        int seq_len = read(STDIN_FILENO, seq, sizeof(seq));
+        if (errno == EINTR) {
+            // Window got resized. Since SIGWINCH is the only signal that we handle right now, there is no need to
+            // check if EINTR is caused specifically by SIGWINCH. In the future it may change. But even in the future
+            // I feel like just doing continue on EINTR regardless of the signal is sufficient.
+            continue;
+        }
+        if (errno > 0) {
+            fprintf(stderr, "ERROR: something went wrong during reading of the user input: %s\n", strerror(errno));
+            return_defer(1);
+        }
+
+        assert(seq_len >= 0);
+        assert((size_t) seq_len < sizeof(seq));
+
         if (insert) {
-            int x = fgetc(stdin);
-            switch (x) {
-            case 27: {
+            if (strcmp(seq, "\x1b") == 0) {
                 insert = false;
                 // TODO: proper saving.
                 // Probably by pressing something in the command mode.
                 editor_save_to_file(e, file_path);
-            }
-            break;
-
-            case 126: {
-                // TODO: delete
-                // May require handling escape sequences
-            } break;
-
-            case 127: {
+            } else if (strcmp(seq, "\x7f") == 0) {
                 editor_backdelete_char(e);
-            }
-            break;
-
-            default: {
-                // TODO: allow inserting only printable ASCII
-                editor_insert_char(e, x);
-            }
+            } else if (strcmp(seq, "\x1b\x5b\x33\x7e") == 0) {
+                // TODO: delete
+            } else if (strcmp(seq, "\n") == 0) {
+                editor_insert_char(e, '\n');
+            } else if (seq_len == 1 && is_display(seq[0])) {
+                editor_insert_char(e, seq[0]);
             }
         } else {
-            int x = fgetc(stdin);
-            switch (x) {
-            case 'q': {
-                // TODO: when the editor exits the shell prompt is shifted
+            if (strcmp(seq, "q") == 0) {
                 quit = true;
-            }
-            break;
-
-            case 'e': {
+            } else if (strcmp(seq, "e") == 0) {
                 insert = true;
-            }
-            break;
-
-            // TODO: preserve the column when moving up and down
-            // Right now if the next line is shorter the current column value is clamped and lost.
-            // Maybe cursor should be a pair (row, column) instead?
-            case 's': {
+            } else if (strcmp(seq, "s") == 0) {
+                // TODO: preserve the column when moving up and down
+                // Right now if the next line is shorter the current column value is clamped and lost.
+                // Maybe cursor should be a pair (row, column) instead?
                 size_t line = editor_current_line(e);
                 size_t column = e->cursor - e->lines.items[line].begin;
                 if (line < e->lines.count - 1) {
@@ -361,10 +379,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
                         e->cursor = e->lines.items[line + 1].end;
                     }
                 }
-            }
-            break;
-
-            case 'w': {
+            } else if (strcmp(seq, "w") == 0) {
                 size_t line = editor_current_line(e);
                 size_t column = e->cursor - e->lines.items[line].begin;
                 if (line > 0) {
@@ -373,42 +388,30 @@ int editor_start_interactive(Editor *e, const char *file_path)
                         e->cursor = e->lines.items[line - 1].end;
                     }
                 }
-            }
-            break;
-
-            case 'a': {
+            } else if (strcmp(seq, "a") == 0) {
                 if (e->cursor > 0) e->cursor -= 1;
-            }
-            break;
-
-            case 'd': {
+            } else if (strcmp(seq, "d") == 0) {
                 if (e->cursor < e->data.count) e->cursor += 1;
-            }
-            break;
-
-            case 126: {
+            } else if (strcmp(seq, "\x1b\x5b\x33\x7e") == 0) {
                 // TODO: delete
-                // May require handling escape sequences since the Delete key seems to be producing sequence [27, 91, 51, 126]
-            } break;
-
-            case 127: {
+            } else if (strcmp(seq, "\x7f") == 0) {
                 editor_backdelete_char(e);
-            }
-            break;
-
-            case '\n': {
+            } else if (strcmp(seq, "\n") == 0) {
                 editor_insert_char(e, '\n');
-            }
-            break;
             }
         }
     }
 
 defer:
+    if (signals_prepared) {
+        UNUSED(sigaction(SIGWINCH, &old, NULL));
+    }
+
     if (terminal_prepared) {
-        printf("\033[2J");
+        printf("\033[2J\033[H");
         term.c_lflag |= ECHO;
-        tcsetattr(STDIN_FILENO, 0, &term);
+        term.c_lflag |= ICANON;
+        UNUSED(tcsetattr(STDIN_FILENO, 0, &term));
     }
     return result;
 }
@@ -433,3 +436,13 @@ defer:
     editor_free_buffers(&editor);
     return result;
 }
+
+// TODO: undo/redo
+// TODO: word wrapping mode
+// TODO: render non-displayable characters safely
+// So they do not modify the state of the terminal
+// TODO: line numbers
+// TODO: utf-8 support
+// - Make Data a collection of uint32_t instead of chars that stores unicode code points
+// - Encode/decode utf-8 on save/load
+// - ...
