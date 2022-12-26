@@ -469,7 +469,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
         } else {
             if (strcmp(seq, "q") == 0) {
                 quit = true;
-            } else if (strcmp(seq, "\x1b ") == 0 || strcmp(seq, " ") == 0) {
+            } else if (strcmp(seq, ES_ESCAPE" ") == 0 || strcmp(seq, " ") == 0) {
                 insert = true;
             } else if (strcmp(seq, "s") == 0) {
                 editor_move_line_up(e);
@@ -533,6 +533,7 @@ defer:
 }
 
 // TODO: there is flickering when running without tmux
+// TODO: incremental search
 // TODO: undo/redo
 // TODO: word wrapping mode
 // TODO: render non-displayable characters safely
