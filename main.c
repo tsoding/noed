@@ -15,6 +15,11 @@
 
 #define return_defer(value) do { result = (value); goto defer; } while(0)
 #define UNUSED(x) (void)(x)
+#define UNIMPLEMENTED(message) \
+    do { \
+        fprintf(stderr, "%s:%d: UNIMPLEMENTED: %s\n", __FILE__, __LINE__, message); \
+        exit(1); \
+    } while(0)
 
 typedef struct {
     size_t begin;
@@ -165,6 +170,15 @@ void editor_insert_char(Editor *e, char x)
     e->data.items[e->cursor] = x;
     e->cursor += 1;
     editor_recompute_lines(e);
+}
+
+void editor_delete_char(Editor *e)
+{
+    if (e->cursor < e->data.count) {
+        memmove(&e->data.items[e->cursor], &e->data.items[e->cursor + 1], e->data.count - e->cursor - 1);
+        e->data.count -= 1;
+        editor_recompute_lines(e);
+    }
 }
 
 void editor_backdelete_char(Editor *e)
@@ -356,7 +370,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
             } else if (strcmp(seq, "\x7f") == 0) {
                 editor_backdelete_char(e);
             } else if (strcmp(seq, "\x1b\x5b\x33\x7e") == 0) {
-                // TODO: delete
+                editor_delete_char(e);
             } else if (strcmp(seq, "\n") == 0) {
                 editor_insert_char(e, '\n');
             } else if (seq_len == 1 && is_display(seq[0])) {
@@ -393,7 +407,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
             } else if (strcmp(seq, "d") == 0) {
                 if (e->cursor < e->data.count) e->cursor += 1;
             } else if (strcmp(seq, "\x1b\x5b\x33\x7e") == 0) {
-                // TODO: delete
+                editor_delete_char(e);
             } else if (strcmp(seq, "\x7f") == 0) {
                 editor_backdelete_char(e);
             } else if (strcmp(seq, "\n") == 0) {
