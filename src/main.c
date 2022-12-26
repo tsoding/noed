@@ -366,7 +366,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
         assert((size_t) seq_len < sizeof(seq));
 
         if (insert) {
-            if (strcmp(seq, ES_ESCAPE) == 0) {
+            if (strcmp(seq, "\x1b ") == 0 || strcmp(seq, ES_ESCAPE) == 0) {
                 insert = false;
                 // TODO: proper saving.
                 // Probably by pressing something in the command mode.
@@ -383,7 +383,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
         } else {
             if (strcmp(seq, "q") == 0) {
                 quit = true;
-            } else if (strcmp(seq, "e") == 0) {
+            } else if (strcmp(seq, "\x1b ") == 0 || strcmp(seq, " ") == 0) {
                 insert = true;
             } else if (strcmp(seq, "s") == 0) {
                 // TODO: preserve the column when moving up and down
