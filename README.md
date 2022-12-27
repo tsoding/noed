@@ -29,6 +29,10 @@ We have two modes: Command and Insert. Just like in vi.
 | <kbd>l</kbd>                             | Move down one paragraph                |
 | <kbd>k</kbd>                             | Move left one word                     |
 | <kbd>;</kbd>                             | Move right one word                    |
+| <kbd>O</kbd>                             | Move to the beginning of the file      |
+| <kbd>L</kbd>                             | Move to the end of the file            |
+| <kbd>K</kbd>                             | Move to the beginning of the line      |
+| <kbd>:</kbd>                             | Move to the end of the line            |
 | <kbd>DELETE</kbd>                        | Delete one character at the cursor     |
 | <kbd>BACKSPACE</kbd>                     | Delete one character before the cursor |
 | <kbd>ENTER</kbd>                         | Insert new line                        |

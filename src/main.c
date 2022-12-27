@@ -28,6 +28,15 @@
         fprintf(stderr, "%s:%d: UNIMPLEMENTED: %s\n", __FILE__, __LINE__, message); \
         exit(1); \
     } while(0)
+#define ASSERT(cond, ...) \
+    do { \
+        if (!(cond)) { \
+            fprintf(stderr, "%s:%d: ASSERTION FAILED: ", __FILE__, __LINE__); \
+            fprintf(stderr, __VA_ARGS__); \
+            fprintf(stderr, "\n"); \
+            exit(1); \
+        } \
+    } while (0)
 
 typedef struct {
     size_t begin;
@@ -111,6 +120,9 @@ void editor_recompute_lines(Editor *e)
         }
     }
 
+    // This has an interesting consequence of e->lines always having at least
+    // one line even if e->data.count == 0. A lot of code depends on that assumption.
+    // We need to be careful if we ever break it.
     da_append(&e->lines, ((Line) {
         .begin = begin,
         .end = e->data.count,
@@ -173,6 +185,7 @@ defer:
 
 void editor_insert_char(Editor *e, char x)
 {
+    assert(e->cursor <= e->data.count);
     da_append(&e->data, '\0');
     memmove(&e->data.items[e->cursor + 1], &e->data.items[e->cursor], e->data.count - 1 - e->cursor);
     e->data.items[e->cursor] = x;
@@ -201,7 +214,8 @@ void editor_backdelete_char(Editor *e)
 
 size_t editor_current_line(const Editor *e)
 {
-    assert(e->cursor <= e->data.count);
+    ASSERT(e->cursor <= e->data.count, "cursor: %zu, size: %zu", e->cursor, e->data.count);
+    assert(e->lines.count >= 1 && "editor_recompute_lines() guarantees there there is at least one line. Make sure you called it.");
     for (size_t i = 0; i < e->lines.count; ++i) {
         if (e->lines.items[i].begin <= e->cursor && e->cursor <= e->lines.items[i].end) {
             return i;
@@ -356,20 +370,20 @@ void editor_move_line_up(Editor *e)
 
 void editor_move_word_left(Editor *e)
 {
-    while (e->cursor > 0 && !isalnum(e->data.items[e->cursor])) {
+    while (0 < e->cursor && e->cursor < e->data.count && !isalnum(e->data.items[e->cursor])) {
         e->cursor -= 1;
     }
-    while (e->cursor > 0 && isalnum(e->data.items[e->cursor])) {
+    while (0 < e->cursor && e->cursor < e->data.count && isalnum(e->data.items[e->cursor])) {
         e->cursor -= 1;
     }
 }
 
 void editor_move_word_right(Editor *e)
 {
-    while (e->cursor < e->data.count - 1 && !isalnum(e->data.items[e->cursor])) {
+    while (0 <= e->cursor && e->cursor < e->data.count - 1 && !isalnum(e->data.items[e->cursor])) {
         e->cursor += 1;
     }
-    while (e->cursor < e->data.count - 1 && isalnum(e->data.items[e->cursor])) {
+    while (0 <= e->cursor && e->cursor < e->data.count - 1 && isalnum(e->data.items[e->cursor])) {
         e->cursor += 1;
     }
 }
@@ -398,6 +412,28 @@ void editor_move_paragraph_down(Editor *e)
     e->cursor = e->lines.items[row].begin;
 }
 
+void editor_move_to_buffer_start(Editor *e)
+{
+    e->cursor = 0;
+}
+
+void editor_move_to_buffer_end(Editor *e)
+{
+    e->cursor = e->data.count;
+}
+
+void editor_move_to_line_start(Editor *e)
+{
+    size_t row = editor_current_line(e);
+    e->cursor = e->lines.items[row].begin;
+}
+
+void editor_move_to_line_end(Editor *e)
+{
+    size_t row = editor_current_line(e);
+    e->cursor = e->lines.items[row].end;
+}
+
 void display_resize(Display *d)
 {
     struct winsize w;
@@ -412,10 +448,10 @@ void display_resize(Display *d)
 void display_flush(FILE *target, Display *d)
 {
     // TODO: efficient rerendering with patching and stuff
+    // Might not be needed since the current method is already fast enough
+    // to prevent flickering
     fprintf(target, "\033[H");
-    for (size_t row = 0; row < d->rows; ++row) {
-        fwrite(d->chars + row*d->cols, sizeof(*d->chars), d->cols, target);
-    }
+    fwrite(d->chars, sizeof(*d->chars), d->rows*d->cols, target);
     fprintf(target, "\033[%zu;%zuH", d->cursor_row + 1, d->cursor_col + 1);
     fflush(target);
 }
@@ -521,6 +557,14 @@ int editor_start_interactive(Editor *e, const char *file_path)
                 editor_move_paragraph_up(e);
             } else if (strcmp(seq, "l") == 0) {
                 editor_move_paragraph_down(e);
+            } else if (strcmp(seq, "O") == 0) {
+                editor_move_to_buffer_start(e);
+            } else if (strcmp(seq, "L") == 0) {
+                editor_move_to_buffer_end(e);
+            } else if (strcmp(seq, "K") == 0) {
+                editor_move_to_line_start(e);
+            } else if (strcmp(seq, ":") == 0) {
+                editor_move_to_line_end(e);
             } else if (strcmp(seq, ES_DELETE) == 0) {
                 editor_delete_char(e);
             } else if (strcmp(seq, ES_BACKSPACE) == 0) {
@@ -590,7 +634,7 @@ int main(int argc, char **argv)
         return_defer(1);
     }
 
-    editor_open_file(&editor, file_path);
+    if (!editor_open_file(&editor, file_path)) return_defer(1);
     if (goto_line >= editor.lines.count) {
         goto_line = editor.lines.count - 1;
     }
@@ -604,6 +648,7 @@ defer:
 }
 
 // TODO: incremental search
+// TODO: goto line
 // TODO: "save as.." prompt that allows you to type in the file path
 // TODO: undo/redo
 // TODO: word wrapping mode
