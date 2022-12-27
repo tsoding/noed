@@ -455,9 +455,17 @@ void display_flush(FILE *target, Display *d)
     fflush(target);
 }
 
+void display_free_buffers(Display *d)
+{
+    free(d->chars);
+    d->chars = 0;
+}
+
 int editor_start_interactive(Editor *e, const char *file_path)
 {
     int result = 0;
+
+    Display d = {0};
     bool terminal_prepared = false;
     bool signals_prepared = false;
 
@@ -490,11 +498,9 @@ int editor_start_interactive(Editor *e, const char *file_path)
 
     signals_prepared = true;
 
-    Display d = {0};
-    display_resize(&d);
-
     bool quit = false;
     bool insert = false;
+    display_resize(&d);
     while (!quit) {
         editor_rerender(e, insert, &d);
         display_flush(stdout, &d);
@@ -585,6 +591,9 @@ defer:
         term.c_lflag |= ICANON;
         UNUSED(tcsetattr(STDIN_FILENO, 0, &term));
     }
+
+    display_free_buffers(&d);
+
     return result;
 }
 
