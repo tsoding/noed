@@ -490,8 +490,6 @@ int editor_start_interactive(Editor *e, const char *file_path)
         if (insert) {
             if (strcmp(seq, "\x1b ") == 0 || strcmp(seq, ES_ESCAPE) == 0) {
                 insert = false;
-                // TODO: proper saving.
-                // Probably by pressing something in the command mode.
                 editor_save_to_file(e, file_path);
             } else if (strcmp(seq, ES_BACKSPACE) == 0) {
                 editor_backdelete_char(e);
@@ -547,19 +545,56 @@ defer:
     return result;
 }
 
+char *shift_args(int *argc, char ***argv)
+{
+    assert(*argc > 0);
+    char *result = **argv;
+    (*argv)++;
+    (*argc)--;
+    return result;
+}
+
 int main(int argc, char **argv)
 {
+    // TODO: implement help message
     int result = 0;
     Editor editor = {0};
 
-    if (argc < 2) {
-        fprintf(stderr, "Usage: noed <input.txt>\n");
+    const char *program = shift_args(&argc, &argv);
+    const char *file_path = NULL;
+    size_t goto_line = 0;
+
+    while (argc > 0) {
+        const char *flag = shift_args(&argc, &argv);
+        if (strcmp(flag, "-gt") == 0) {
+            if (argc <= 0) {
+                fprintf(stderr, "ERROR: no value is provided for the flag %s\n", flag);
+                return_defer(1);
+            }
+            const char *value = shift_args(&argc, &argv);
+            // TODO: replace atoi with appropriate function
+            goto_line = atoi(value);
+        } else {
+            if (file_path != NULL) {
+                fprintf(stderr, "ERROR: editing multiple files is not supported yet\n");
+                return_defer(1);
+            }
+
+            file_path = flag;
+        }
+    }
+
+    if (file_path == NULL) {
+        fprintf(stderr, "Usage: %s <input.txt>\n", program);
         fprintf(stderr, "ERROR: no input file is provided\n");
         return_defer(1);
     }
 
-    const char *file_path = argv[1];
     editor_open_file(&editor, file_path);
+    if (goto_line >= editor.lines.count) {
+        goto_line = editor.lines.count - 1;
+    }
+    editor.cursor = editor.lines.items[goto_line].begin;
     int exit_code = editor_start_interactive(&editor, file_path);
     return_defer(exit_code);
 
@@ -569,6 +604,7 @@ defer:
 }
 
 // TODO: incremental search
+// TODO: "save as.." prompt that allows you to type in the file path
 // TODO: undo/redo
 // TODO: word wrapping mode
 // TODO: render non-displayable characters safely
