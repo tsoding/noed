@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -61,7 +60,7 @@ typedef struct {
     if ((da)->count >= (da)->capacity) {                                               \
         (da)->capacity = (da)->capacity == 0 ? ITEMS_INIT_CAPACITY : (da)->capacity*2; \
         (da)->items = realloc((da)->items, (da)->capacity*sizeof(*(da)->items));       \
-        assert((da)->items != NULL && "Buy more RAM lol");                             \
+        ASSERT((da)->items != NULL, "Buy more RAM lol");                               \
     }                                                                                  \
     (da)->items[(da)->count++] = (item);                                               \
 } while (0)
@@ -70,7 +69,7 @@ typedef struct {
    if ((da)->capacity < desired_capacity) {                                     \
        (da)->capacity = desired_capacity;                                       \
        (da)->items = realloc((da)->items, (da)->capacity*sizeof(*(da)->items)); \
-       assert((da)->items != NULL && "Buy more RAM lol");                       \
+       ASSERT((da)->items != NULL, "Buy more RAM lol");                         \
    }                                                                            \
 } while(0)
 
@@ -185,7 +184,7 @@ defer:
 
 void editor_insert_char(Editor *e, char x)
 {
-    assert(e->cursor <= e->data.count);
+    if (e->cursor > e->data.count) e->cursor = e->data.count;
     da_append(&e->data, '\0');
     memmove(&e->data.items[e->cursor + 1], &e->data.items[e->cursor], e->data.count - 1 - e->cursor);
     e->data.items[e->cursor] = x;
@@ -215,7 +214,7 @@ void editor_backdelete_char(Editor *e)
 size_t editor_current_line(const Editor *e)
 {
     ASSERT(e->cursor <= e->data.count, "cursor: %zu, size: %zu", e->cursor, e->data.count);
-    assert(e->lines.count >= 1 && "editor_recompute_lines() guarantees there there is at least one line. Make sure you called it.");
+    ASSERT(e->lines.count >= 1, "editor_recompute_lines() guarantees there there is at least one line. Make sure you called it.");
     for (size_t i = 0; i < e->lines.count; ++i) {
         if (e->lines.items[i].begin <= e->cursor && e->cursor <= e->lines.items[i].end) {
             return i;
@@ -438,11 +437,11 @@ void display_resize(Display *d)
 {
     struct winsize w;
     int err = ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-    assert(err == 0);
+    ASSERT(err == 0, "All the necessary checks to make sure this works should've been done beforehand");
     d->rows = w.ws_row;
     d->cols = w.ws_col;
     d->chars = realloc(d->chars, d->rows*d->cols*sizeof(*d->chars));
-    assert(d->chars != NULL && "Buy more RAM lol");
+    ASSERT(d->chars != NULL, "Buy more RAM lol");
 }
 
 void display_flush(FILE *target, Display *d)
@@ -517,7 +516,7 @@ int editor_start_interactive(Editor *e, const char *file_path)
             return_defer(1);
         }
 
-        assert(seq_len >= 0);
+        ASSERT(seq_len >= 0, "If there is no error, seq_len cannot be less than 0");
         if ((size_t) seq_len >= sizeof(seq)) {
             // Escape sequence is too big. Ignoring it.
             continue;
@@ -591,7 +590,7 @@ defer:
 
 char *shift_args(int *argc, char ***argv)
 {
-    assert(*argc > 0);
+    ASSERT(*argc > 0, "Ran out of arguments to shift");
     char *result = **argv;
     (*argv)++;
     (*argc)--;
