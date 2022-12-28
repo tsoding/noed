@@ -685,10 +685,13 @@ defer:
 // TODO: undo/redo
 // TODO: word wrapping mode
 // TODO: render non-displayable characters safely
-// So they do not modify the state of the terminal
+//   So they do not modify the state of the terminal
 // TODO: line numbers
 // TODO: utf-8 support
-// - Make Data a collection of uint32_t instead of chars that stores unicode code points
-// - Encode/decode utf-8 on save/load
-// - ...
+//   - Make Data a collection of uint32_t instead of chars that stores unicode code points
+//   - Encode/decode utf-8 on save/load
+//   - ...
 // TODO: Simple keywords highlighting
+// TODO: The editor should be self-explorable:
+//   - An ability to view what functions are bound to what keys from within the editor
+//   - ...
