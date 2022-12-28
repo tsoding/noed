@@ -679,14 +679,14 @@ defer:
     return result;
 }
 
-// TODO: incremental search
+// TODO: line numbers
 // TODO: goto line
+// TODO: incremental search
 // TODO: "save as.." prompt that allows you to type in the file path
 // TODO: undo/redo
 // TODO: word wrapping mode
 // TODO: render non-displayable characters safely
 //   So they do not modify the state of the terminal
-// TODO: line numbers
 // TODO: utf-8 support
 //   - Make Data a collection of uint32_t instead of chars that stores unicode code points
 //   - Encode/decode utf-8 on save/load
