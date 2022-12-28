@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -606,6 +607,18 @@ char *shift_args(int *argc, char ***argv)
     return result;
 }
 
+bool decimal_string_as_uint64_with_overflow(const char *str, uint64_t *result)
+{
+    *result = 0;
+    while (*str) {
+        if (!isdigit(*str)) return false;
+        *result *= 10;
+        *result += *str - '0';
+        str += 1;
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     // TODO: implement help message
@@ -614,7 +627,7 @@ int main(int argc, char **argv)
 
     const char *program = shift_args(&argc, &argv);
     const char *file_path = NULL;
-    size_t goto_line = 0;
+    uint64_t goto_line = 0;
 
     while (argc > 0) {
         const char *flag = shift_args(&argc, &argv);
@@ -624,8 +637,10 @@ int main(int argc, char **argv)
                 return_defer(1);
             }
             const char *value = shift_args(&argc, &argv);
-            // TODO: replace atoi with appropriate function
-            goto_line = atoi(value);
+            if (!decimal_string_as_uint64_with_overflow(value, &goto_line)) {
+                fprintf(stderr, "ERROR: the value of %s is expected to be a non-negative integer\n", flag);
+                return_defer(1);
+            }
         } else {
             if (file_path != NULL) {
                 fprintf(stderr, "ERROR: editing multiple files is not supported yet\n");
