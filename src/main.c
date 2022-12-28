@@ -619,9 +619,15 @@ bool decimal_string_as_uint64_with_overflow(const char *str, uint64_t *result)
     return true;
 }
 
+void usage(const char *program)
+{
+    fprintf(stderr, "Usage: %s [OPTIONS] <input.txt>\n", program);
+    fprintf(stderr, "OPTIONS:\n");
+    fprintf(stderr, "    -gt <line-number>    go to the provided <line-number>\n");
+}
+
 int main(int argc, char **argv)
 {
-    // TODO: implement help message
     int result = 0;
     Editor editor = {0};
 
@@ -633,16 +639,19 @@ int main(int argc, char **argv)
         const char *flag = shift_args(&argc, &argv);
         if (strcmp(flag, "-gt") == 0) {
             if (argc <= 0) {
+                usage(program);
                 fprintf(stderr, "ERROR: no value is provided for the flag %s\n", flag);
                 return_defer(1);
             }
             const char *value = shift_args(&argc, &argv);
             if (!decimal_string_as_uint64_with_overflow(value, &goto_line)) {
+                usage(program);
                 fprintf(stderr, "ERROR: the value of %s is expected to be a non-negative integer\n", flag);
                 return_defer(1);
             }
         } else {
             if (file_path != NULL) {
+                usage(program);
                 fprintf(stderr, "ERROR: editing multiple files is not supported yet\n");
                 return_defer(1);
             }
@@ -652,7 +661,7 @@ int main(int argc, char **argv)
     }
 
     if (file_path == NULL) {
-        fprintf(stderr, "Usage: %s <input.txt>\n", program);
+        usage(program);
         fprintf(stderr, "ERROR: no input file is provided\n");
         return_defer(1);
     }
